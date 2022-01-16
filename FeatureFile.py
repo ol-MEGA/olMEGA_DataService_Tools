@@ -1,3 +1,9 @@
+"""
+functions to load and save olMEGA feature files
+License: BSD 3-clause 
+Version 1.0.0 Sven Franz @ Jade HS
+Version 1.0.1 JB bug fixed with non valid filenames
+"""
 import os
 import struct
 import zlib
@@ -28,13 +34,18 @@ class FeatureFile():
 
 def load(file):
     featureFile = FeatureFile()
-    if type(file) is str and os.path.isfile(file):
-        with open(file, mode='rb') as filereader:
-            data = filereader.read()
+    if type(file) is str:
+        if file[-5:] == '.feat':
+            if os.path.isfile(file):
+                with open(file, mode='rb') as filereader:
+                    data = filereader.read()
+            else:
+                return None
+        else:
+            data = bytearray(file.encode())
     elif type(file) == bytearray:
         data = file
-    elif type(file) is str:
-        data = bytearray(file.encode())
+
     if len(data):
         veryOldHeaderSizes = [29, 36]
         if len(data) >= 2 and hex(data[0]) == '0x78' and hex(data[1]) in ['0x01', '0x9c', '0xda']:
