@@ -14,6 +14,7 @@ as filter coefficients (to be used by lfilter)
 # used sources: DIN 61672-1, octave toolbox by Christophe COUVREUR
 # version 1.0  12.12.2021 first build 
 # 1.1 14.12.2021 added lower() to allow A and a 
+# 1.2 31.08.2022 added z weighing = no weighting.
 
 
 import math
@@ -93,8 +94,12 @@ def get_complex_tf_weighting(f_Hz, weight_func = 'a'):
         a1000 = -2 
         aweight = ((4*np.pi**2*f4**2 * om_vek**4)/((om_vek + 2*np.pi*f1)**2 *(om_vek + 2*np.pi*f2)*
                                                    (om_vek + 2*np.pi*f3)*(om_vek + 2*np.pi*f4)**2))/(10**(a1000/20))
-
         return aweight
+    
+    if weight_func.lower() == 'z':
+        zweight = np.ones_like(om_vek)
+        return zweight
+
     
 
 def get_weight_value(f_Hz, weight_func = 'a', return_mode = 'log'):
@@ -118,6 +123,13 @@ def get_weight_value(f_Hz, weight_func = 'a', return_mode = 'log'):
         else:
             aweight = ((f4**2*f_Hz**4)/((f_Hz**2 + f1**2)*(f_Hz**2 + f2**2)**0.5*(f_Hz**2 + f3**2)**0.5*(f_Hz**2 + f4**2)))/(10**(a1000/20))
         return aweight
+
+    if weight_func.lower() == 'z':
+        if return_mode == 'log':
+            zweight = np.zeros_like(f_Hz)
+        else:
+            zweight = np.ones_like(f_Hz)
+        return zweight
     
 def get_fftweight_vector(fft_size, fs, weight_func = 'a', return_mode = 'log'):
     """ for a given fft_size the a or c weighting vector (fft_size/2 +1 elements from 0 to fs/2 Hz) is returned"""
