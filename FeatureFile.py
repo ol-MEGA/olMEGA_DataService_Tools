@@ -30,6 +30,7 @@ class FeatureFile():
         self.BlockSizeInSamples = 0
         self.mBlockTime = None
         self.dataTimestamps = []
+        self.TransmitterSamplingrate = -1
         self.data = []
 
 def load(file):
@@ -79,6 +80,9 @@ def load(file):
                 featureFile.AndroidID = "".join(map(chr, data[64:80]))
                 featureFile.BluetoothTransmitterMAC = "".join(map(chr, data[80:97]))
                 featureFile.nBytesHeader = 97
+            if featureFile.ProtokollVersion >= 5:
+                featureFile.TransmitterSamplingrate = struct.unpack('f', data[97:101])[0]
+                featureFile.nBytesHeader = 101
         featureFile.nBlocks = 1
         featureFile.nFrames = sum(featureFile.vFrames)
         featureFile.nFramesPerBlock = featureFile.vFrames[0]
