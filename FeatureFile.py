@@ -3,6 +3,7 @@ functions to load and save olMEGA feature files
 License: BSD 3-clause 
 Version 1.0.0 Sven Franz @ Jade HS
 Version 1.0.1 JB bug fixed with non valid filenames
+Version 1.0.2 SF Save as V5
 """
 import os
 import struct
@@ -11,6 +12,8 @@ import zlib
 import numpy
 
 class FeatureFile():
+    maxProtokollVersion = 5
+
     def __init__(self) -> None:
         self.FrameSizeInSamples = 0
         self.HopSizeInSamples = 0
@@ -101,7 +104,7 @@ def save(featureFile, filename, compressOnServer = False):
         featureFile.nBlocks = 1
         featureFile.BlockSizeInSamples = featureFile.nFrames * featureFile.HopSizeInSamples + featureFile.FrameSizeInSamples
         header = bytearray()
-        header += int(4).to_bytes(4, "big")
+        header += int(FeatureFile.maxProtokollVersion).to_bytes(4, "big")
         header += featureFile.nFrames.to_bytes(4, "big")
         header += (featureFile.nDimensions + 2).to_bytes(4, "big")
         header += featureFile.FrameSizeInSamples.to_bytes(4, "big")
@@ -113,6 +116,7 @@ def save(featureFile, filename, compressOnServer = False):
         header += bytearray(struct.pack("f", featureFile.calibrationInDb[1]))
         header += bytearray((featureFile.AndroidID + " "*(16-len(featureFile.AndroidID)))[:16], "utf-8")
         header += bytearray((featureFile.BluetoothTransmitterMAC + " "*(17-len(featureFile.BluetoothTransmitterMAC)))[:17], "utf-8")
+        header += bytearray(struct.pack("f", featureFile.TransmitterSamplingrate[0]))
         featureFile.dataTimestamps = numpy.linspace(0, featureFile.nFrames * featureFile.HopSizeInSamples / featureFile.fs - featureFile.HopSizeInSamples / featureFile.fs, featureFile.data.shape[0])
         featureFile.dataTimestamps = numpy.concatenate((featureFile.dataTimestamps, featureFile.dataTimestamps + featureFile.FrameSizeInSamples / featureFile.fs), axis=0)
         featureFile.dataTimestamps = featureFile.dataTimestamps.reshape(featureFile.data.shape[0], 2)
