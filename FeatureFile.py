@@ -116,7 +116,7 @@ def save(featureFile, filename, compressOnServer = False):
         header += bytearray(struct.pack("f", featureFile.calibrationInDb[1]))
         header += bytearray((featureFile.AndroidID + " "*(16-len(featureFile.AndroidID)))[:16], "utf-8")
         header += bytearray((featureFile.BluetoothTransmitterMAC + " "*(17-len(featureFile.BluetoothTransmitterMAC)))[:17], "utf-8")
-        header += bytearray(struct.pack("f", featureFile.TransmitterSamplingrate[0]))
+        header += bytearray(struct.pack("f", featureFile.TransmitterSamplingrate))
         featureFile.dataTimestamps = numpy.linspace(0, featureFile.nFrames * featureFile.HopSizeInSamples / featureFile.fs - featureFile.HopSizeInSamples / featureFile.fs, featureFile.data.shape[0])
         featureFile.dataTimestamps = numpy.concatenate((featureFile.dataTimestamps, featureFile.dataTimestamps + featureFile.FrameSizeInSamples / featureFile.fs), axis=0)
         featureFile.dataTimestamps = featureFile.dataTimestamps.reshape(featureFile.data.shape[0], 2)
