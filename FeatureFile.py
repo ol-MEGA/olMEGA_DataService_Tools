@@ -4,6 +4,7 @@ License: BSD 3-clause
 Version 1.0.0 Sven Franz @ Jade HS
 Version 1.0.1 JB bug fixed with non valid filenames
 Version 1.0.2 SF Save as V5
+Version 1.0.3 SF Save as V6
 """
 import os
 import struct
