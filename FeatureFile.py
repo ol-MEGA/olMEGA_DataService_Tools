@@ -3,6 +3,7 @@ functions to load and save olMEGA feature files
 License: BSD 3-clause 
 Version 1.0.0 Sven Franz @ Jade HS
 Version 1.0.1 JB bug fixed with non valid filenames
+Version 1.0.2 SF Save as V5
 """
 import os
 import struct
@@ -11,6 +12,8 @@ import zlib
 import numpy
 
 class FeatureFile():
+    maxProtokollVersion = 6
+
     def __init__(self) -> None:
         self.FrameSizeInSamples = 0
         self.HopSizeInSamples = 0
@@ -31,12 +34,13 @@ class FeatureFile():
         self.mBlockTime = None
         self.dataTimestamps = []
         self.TransmitterSamplingrate = -1
+        self.App_Version = ''
         self.data = []
 
 def load(file):
     featureFile = FeatureFile()
     if type(file) is str:
-        if file[-5:] == '.feat':
+        if '.feat' in file:
             if os.path.isfile(file):
                 with open(file, mode='rb') as filereader:
                     data = filereader.read()
@@ -74,15 +78,18 @@ def load(file):
                 featureFile.calibrationInDb = [struct.unpack('f', data[56:60])[0], struct.unpack('f', data[60:64])[0]]
                 featureFile.nBytesHeader = 64
             if featureFile.ProtokollVersion >= 3:
-                featureFile.SystemTime = "".join(map(chr, data[40:56]))
+                featureFile.SystemTime = "".join(map(chr, data[40:56])).strip()
                 featureFile.nBytesHeader = 56
             if featureFile.ProtokollVersion >= 4:
-                featureFile.AndroidID = "".join(map(chr, data[64:80]))
-                featureFile.BluetoothTransmitterMAC = "".join(map(chr, data[80:97]))
+                featureFile.AndroidID = "".join(map(chr, data[64:80])).strip()
+                featureFile.BluetoothTransmitterMAC = "".join(map(chr, data[80:97])).strip()
                 featureFile.nBytesHeader = 97
             if featureFile.ProtokollVersion >= 5:
                 featureFile.TransmitterSamplingrate = struct.unpack('f', data[97:101])[0]
                 featureFile.nBytesHeader = 101
+            if featureFile.ProtokollVersion >= 6:
+                featureFile.App_Version = ("".join(map(chr, data[101:121]))).strip()
+                featureFile.nBytesHeader = 121
         featureFile.nBlocks = 1
         featureFile.nFrames = sum(featureFile.vFrames)
         featureFile.nFramesPerBlock = featureFile.vFrames[0]
@@ -101,9 +108,9 @@ def save(featureFile, filename, compressOnServer = False):
         featureFile.nBlocks = 1
         featureFile.BlockSizeInSamples = featureFile.nFrames * featureFile.HopSizeInSamples + featureFile.FrameSizeInSamples
         header = bytearray()
-        header += int(4).to_bytes(4, "big")
+        header += int(FeatureFile.maxProtokollVersion).to_bytes(4, "big")
         header += featureFile.nFrames.to_bytes(4, "big")
-        header += (featureFile.nDimensions + 2).to_bytes(4, "big")
+        header += featureFile.nDimensions.to_bytes(4, "big")
         header += featureFile.FrameSizeInSamples.to_bytes(4, "big")
         header += featureFile.HopSizeInSamples.to_bytes(4, "big")
         header += featureFile.fs.to_bytes(4, "big")
@@ -113,6 +120,9 @@ def save(featureFile, filename, compressOnServer = False):
         header += bytearray(struct.pack("f", featureFile.calibrationInDb[1]))
         header += bytearray((featureFile.AndroidID + " "*(16-len(featureFile.AndroidID)))[:16], "utf-8")
         header += bytearray((featureFile.BluetoothTransmitterMAC + " "*(17-len(featureFile.BluetoothTransmitterMAC)))[:17], "utf-8")
+        header += bytearray(struct.pack("f", featureFile.TransmitterSamplingrate))
+        header += bytearray((featureFile.App_Version + " "*(20-len(featureFile.App_Version)))[:20], "utf-8")
+        featureFile.nBytesHeader = 121
         featureFile.dataTimestamps = numpy.linspace(0, featureFile.nFrames * featureFile.HopSizeInSamples / featureFile.fs - featureFile.HopSizeInSamples / featureFile.fs, featureFile.data.shape[0])
         featureFile.dataTimestamps = numpy.concatenate((featureFile.dataTimestamps, featureFile.dataTimestamps + featureFile.FrameSizeInSamples / featureFile.fs), axis=0)
         featureFile.dataTimestamps = featureFile.dataTimestamps.reshape(featureFile.data.shape[0], 2)
@@ -124,3 +134,11 @@ def save(featureFile, filename, compressOnServer = False):
             data = zlib.compress(data)
         with open(filename, mode='wb') as filewriter:
             filewriter.write(data)
+        pass
+
+if __name__ == '__main__':
+    filename = 'tmp/RMS_20230612_115802557.feat'
+    featurefile = load(filename)
+    save(featurefile, filename + "_tmp")
+    featurefile = load(filename + "_tmp")
+    print(featurefile)
