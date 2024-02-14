@@ -3,17 +3,20 @@ functions to load and save olMEGA feature files
 License: BSD 3-clause 
 Version 1.0.0 Sven Franz @ Jade HS
 Version 1.0.1 JB bug fixed with non valid filenames
-Version 1.0.2 SF Save as V5
 """
+import os
+import math
 import os
 import struct
 import zlib
 
 import numpy
+import scipy
+
+def next_power_of_2(x):
+    return 1 if x == 0 else 2**math.ceil(math.log2(x))
 
 class FeatureFile():
-    maxProtokollVersion = 6
-
     def __init__(self) -> None:
         self.FrameSizeInSamples = 0
         self.HopSizeInSamples = 0
@@ -22,6 +25,8 @@ class FeatureFile():
         self.calibrationInDb = [0, 0]
         self.AndroidID = ''
         self.BluetoothTransmitterMAC = ''
+        self.TransmitterSamplingrate = 0
+        self.AppVersion = ''
         self.nBytesHeader = 0
         self.ProtokollVersion = 0
         self.nDimensions = 0
@@ -33,14 +38,40 @@ class FeatureFile():
         self.BlockSizeInSamples = 0
         self.mBlockTime = None
         self.dataTimestamps = []
-        self.TransmitterSamplingrate = -1
-        self.App_Version = ''
         self.data = []
 
+    def wavSignal(self):
+        if type(self.data) is numpy.ndarray:
+            n = [int(self.data.shape[1] / 2), int(self.data.shape[1] / 4)]
+            Pxy = self.data[:, 0 : n[0] : 2]+ self.data[:, 1 : n[0] : 2] * 1j
+            Pxx = self.data[:, n[0] : n[0] + n[1]].clip(0, None)
+            Pyy = self.data[:, n[0] + n[1] : ].clip(0, None)
+            blocklen    = math.floor(.025 * self.fs)
+            nFFT        = next_power_of_2(blocklen)
+            spec = numpy.sqrt(Pxx)
+            spec = scipy.signal.resample(spec, int(spec.shape[0] * (0.125 * 1000 * 2) / (0.025 * 1000))).clip(0, None)
+            phase = 2 * math.pi * numpy.random.rand(spec.shape[0], spec.shape[1])
+            phase[:, 0] = 0
+            spec = numpy.multiply(spec, numpy.exp(1j * phase))
+            spec = numpy.concatenate((spec, numpy.fliplr(spec[:, 1 : -1]).conj()), 1)
+            blocks = numpy.real(numpy.fft.ifft(spec * nFFT, nFFT))
+            TimeSignal = numpy.zeros(int(blocks.shape[0] * .025 / 2 * self.fs))
+            if TimeSignal.shape[0] % blocklen != 0:
+                TimeSignal = numpy.concatenate((TimeSignal, numpy.zeros(int(blocklen - (TimeSignal.shape[0] % blocklen)))))
+            TimeSignal = numpy.concatenate((TimeSignal, numpy.zeros(int(blocklen / 2))))
+            idx = 0
+            win = numpy.hanning(int(blocklen))
+            for blockIdx in range(blocks.shape[0]):
+                TimeSignal[idx : (idx + blocklen)] += numpy.multiply(blocks[blockIdx, 0 : blocklen], win)
+                idx += int(blocklen / 2)
+            TimeSignal = TimeSignal[0 : int(blocks.shape[0] * .025 / 2 * self.fs)]
+            return TimeSignal
+
 def load(file):
+    data = None
     featureFile = FeatureFile()
     if type(file) is str:
-        if '.feat' in file:
+        if file[-5:] == '.feat':
             if os.path.isfile(file):
                 with open(file, mode='rb') as filereader:
                     data = filereader.read()
@@ -51,7 +82,7 @@ def load(file):
     elif type(file) == bytearray:
         data = file
 
-    if len(data):
+    if not data is None and len(data):
         veryOldHeaderSizes = [29, 36]
         if len(data) >= 2 and hex(data[0]) == '0x78' and hex(data[1]) in ['0x01', '0x9c', '0xda']:
             data = zlib.decompress(data)
@@ -78,17 +109,17 @@ def load(file):
                 featureFile.calibrationInDb = [struct.unpack('f', data[56:60])[0], struct.unpack('f', data[60:64])[0]]
                 featureFile.nBytesHeader = 64
             if featureFile.ProtokollVersion >= 3:
-                featureFile.SystemTime = "".join(map(chr, data[40:56])).strip()
+                featureFile.SystemTime = "".join(map(chr, data[40:56]))
                 featureFile.nBytesHeader = 56
             if featureFile.ProtokollVersion >= 4:
-                featureFile.AndroidID = "".join(map(chr, data[64:80])).strip()
-                featureFile.BluetoothTransmitterMAC = "".join(map(chr, data[80:97])).strip()
+                featureFile.AndroidID = "".join(map(chr, data[64:80]))
+                featureFile.BluetoothTransmitterMAC = "".join(map(chr, data[80:97]))
                 featureFile.nBytesHeader = 97
             if featureFile.ProtokollVersion >= 5:
-                featureFile.TransmitterSamplingrate = struct.unpack('f', data[97:101])[0]
+                featureFile.TransmitterSamplingrate = int.from_bytes(data[97:101], byteorder='big', signed=True)
                 featureFile.nBytesHeader = 101
             if featureFile.ProtokollVersion >= 6:
-                featureFile.App_Version = ("".join(map(chr, data[101:121]))).strip()
+                featureFile.AppVersion = "".join(map(chr, data[101:121]))
                 featureFile.nBytesHeader = 121
         featureFile.nBlocks = 1
         featureFile.nFrames = sum(featureFile.vFrames)
@@ -108,9 +139,9 @@ def save(featureFile, filename, compressOnServer = False):
         featureFile.nBlocks = 1
         featureFile.BlockSizeInSamples = featureFile.nFrames * featureFile.HopSizeInSamples + featureFile.FrameSizeInSamples
         header = bytearray()
-        header += int(FeatureFile.maxProtokollVersion).to_bytes(4, "big")
+        header += int(6).to_bytes(4, "big")
         header += featureFile.nFrames.to_bytes(4, "big")
-        header += featureFile.nDimensions.to_bytes(4, "big")
+        header += (featureFile.nDimensions + 2).to_bytes(4, "big")
         header += featureFile.FrameSizeInSamples.to_bytes(4, "big")
         header += featureFile.HopSizeInSamples.to_bytes(4, "big")
         header += featureFile.fs.to_bytes(4, "big")
@@ -120,9 +151,10 @@ def save(featureFile, filename, compressOnServer = False):
         header += bytearray(struct.pack("f", featureFile.calibrationInDb[1]))
         header += bytearray((featureFile.AndroidID + " "*(16-len(featureFile.AndroidID)))[:16], "utf-8")
         header += bytearray((featureFile.BluetoothTransmitterMAC + " "*(17-len(featureFile.BluetoothTransmitterMAC)))[:17], "utf-8")
-        header += bytearray(struct.pack("f", featureFile.TransmitterSamplingrate))
-        header += bytearray((featureFile.App_Version + " "*(20-len(featureFile.App_Version)))[:20], "utf-8")
-        featureFile.nBytesHeader = 121
+
+        header += featureFile.TransmitterSamplingrate.to_bytes(4, "big")
+        header += bytearray((featureFile.AppVersion + " "*(20-len(featureFile.AppVersion)))[:20], "utf-8")
+
         featureFile.dataTimestamps = numpy.linspace(0, featureFile.nFrames * featureFile.HopSizeInSamples / featureFile.fs - featureFile.HopSizeInSamples / featureFile.fs, featureFile.data.shape[0])
         featureFile.dataTimestamps = numpy.concatenate((featureFile.dataTimestamps, featureFile.dataTimestamps + featureFile.FrameSizeInSamples / featureFile.fs), axis=0)
         featureFile.dataTimestamps = featureFile.dataTimestamps.reshape(featureFile.data.shape[0], 2)
@@ -134,11 +166,15 @@ def save(featureFile, filename, compressOnServer = False):
             data = zlib.compress(data)
         with open(filename, mode='wb') as filewriter:
             filewriter.write(data)
-        pass
 
-if __name__ == '__main__':
-    filename = 'tmp/RMS_20230612_115802557.feat'
-    featurefile = load(filename)
-    save(featurefile, filename + "_tmp")
-    featurefile = load(filename + "_tmp")
-    print(featurefile)
+if __name__ == "__main__":
+    feat = load('AE210040_AkuData/PSD_20221024_075625249.feat')
+
+    dates = []
+    for file in os.listdir('AE210040_AkuData'):            
+        if file.startswith("PSD_"):
+            feat = load(os.path.join("AE210040_AkuData", file))
+            if feat:
+                dates.append(feat.SystemTime)
+        
+    pass
